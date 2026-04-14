@@ -1,17 +1,3 @@
-=== Proxy Pool Report ===
-Updated: 2026-04-14 03:04:21 UTC
-
---- Source Stats ---
-[1] NoMoreWalls: 13120 bytes
-[2] V2RayAggregator: 200 lines
-[3] mfuu/v2ray: 67 lines
-[4] get_subscribe: 1 lines
-
---- Pipeline ---
-Total merged: 266
-Alive nodes: 0
-
---- IP Quality ---
 {
   "timestamp": "2026-04-14 03:04:21 UTC",
   "total_ips_checked": 40,
