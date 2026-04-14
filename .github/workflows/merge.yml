@@ -1,9 +1,9 @@
 name: Merge Proxies
+
 on:
   schedule:
     - cron: '0 */1 * * *'
   workflow_dispatch:
-
 
 jobs:
   merge:
@@ -12,12 +12,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-
       - name: Fetch and Merge with Logging
         run: |
           mkdir -p subscribe
-
-          echo "========================================" 
+          
+          echo "========================================"
           echo "Proxy Pool Aggregator - $(date '+%Y-%m-%d %H:%M:%S UTC')"
           echo "========================================"
 
@@ -27,22 +26,22 @@ jobs:
           echo "[Source 1] NoMoreWalls: $S1 nodes"
 
           # Source 2: V2RayAggregator
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/V2RayAggregator/master/Eternity.txt -o nodes2.txt || true
+          curl -sL https://raw.githubusercontent.com/sangosbanikz/V2RayAggregator/main/subscribe/v2ray.txt -o nodes2.txt || true
           S2=$(grep -c '' nodes2.txt 2>/dev/null || echo 0)
           echo "[Source 2] V2RayAggregator: $S2 nodes"
 
           # Source 3: mfuu/v2ray
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/v2ray/master/merge/merge.txt -o nodes3.txt || true
+          curl -sL https://raw.githubusercontent.com/sangosbanikz/v2ray/master/subscribe/v2ray.txt -o nodes3.txt || true
           S3=$(grep -c '' nodes3.txt 2>/dev/null || echo 0)
           echo "[Source 3] mfuu/v2ray: $S3 nodes"
 
           # Source 4: get_subscribe
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/get_subscribe/main/subscribe/v2ray.txt -o nodes4.txt || true
+          curl -sL https://raw.githubusercontent.com/sangosbanikz/get_subscribe/main/v2ray.txt -o nodes4.txt || true
           S4=$(grep -c '' nodes4.txt 2>/dev/null || echo 0)
           echo "[Source 4] get_subscribe: $S4 nodes"
-          
+
           # Source 5: Free-servers
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/Free-servers/main/sub -o nodes5.txt || true
+          curl -sL https://raw.githubusercontent.com/sangosbanikz/Free-servers/master/v2ray.txt -o nodes5.txt || true
           S5=$(grep -c '' nodes5.txt 2>/dev/null || echo 0)
           echo "[Source 5] Free-servers: $S5 nodes"
 
