@@ -107,3 +107,54 @@ jobs:
                   "residential": sum(1 for r in results if not r.get("hosting", True)),
                   "datacenter": sum(1 for r in results if r.get("hosting", False)),
                   "proxy_flagged": sum(1 for r in results if r.get("proxy", False)),
+                  "clean": sum(1 for r in results if not r.get("proxy", True)),
+                  "countries": list(set(r.get("countryCode", "?") for r in results))
+              }
+          }
+          with open("subscribe/report.json", "w") as f:
+              json.dump(report, f, indent=2, ensure_ascii=False)
+          print(f"\nSummary: {report['summary']}")
+          PYEOF
+
+      - name: Generate log
+        run: |
+          {
+            echo "=== Proxy Pool Report ==="
+            echo "Updated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+            echo "--- Source Stats ---"
+            S1=$(wc -c < n1.txt 2>/dev/null || echo 0); echo "[1] NoMoreWalls: ${S1} bytes"
+            S2=$(grep -c '' n2.txt 2>/dev/null || echo 0); echo "[2] V2RayAggregator: ${S2} lines"
+            S3=$(grep -c '' n3.txt 2>/dev/null || echo 0); echo "[3] mfuu/v2ray: ${S3} lines"
+            S4=$(grep -c '' n4.txt 2>/dev/null || echo 0); echo "[4] get_subscribe: ${S4} lines"
+            TOTAL=$(wc -l < subscribe/v2ray.txt 2>/dev/null || echo 0)
+            ALIVE=$(wc -l < subscribe/alive.txt 2>/dev/null || echo 0)
+            echo ""
+            echo "--- Pipeline ---"
+            echo "Total merged: ${TOTAL}"
+            echo "Alive nodes: ${ALIVE}"
+            echo ""
+            echo "--- IP Quality ---"
+            if [ -f subscribe/report.json ]; then
+              python3 -c "
+          import json
+          with open('subscribe/report.json') as f:
+              r = json.load(f)
+          s = r.get('summary', {})
+          print(f\"Checked: {r.get('total_ips_checked', 0)}\")
+          print(f\"Residential: {s.get('residential', 0)}\")
+          print(f\"Datacenter: {s.get('datacenter', 0)}\")
+          print(f\"Proxy flagged: {s.get('proxy_flagged', 0)}\")
+          print(f\"Clean: {s.get('clean', 0)}\")
+          print(f\"Countries: {', '.join(s.get('countries', []))}\"
+          "
+            fi
+          } > subscribe/log.txt
+
+      - name: Commit and push
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add -A
+          git commit -m "update $(date '+%m-%d %H:%M')" --allow-empty
+          git push
