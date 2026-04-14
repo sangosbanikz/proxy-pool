@@ -7,39 +7,259 @@ on:
 jobs:
   merge:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Fetch and Merge with Logging
+      - name: Fetch all sources
         run: |
           mkdir -p subscribe
-          echo "========================================"
-          echo "Proxy Pool - $(date '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "========================================"
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/NoMoreWalls/master/list.txt -o n1.txt || true
-          S1=$(grep -c '' n1.txt 2>/dev/null || echo 0)
-          echo "[1] NoMoreWalls: $S1 nodes"
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/V2RayAggregator/master/Eternity.txt -o n2.txt || true
+          echo "=== Proxy Pool $(date '+%Y-%m-%d %H:%M UTC') ==="
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/NoMoreWalls/master/list.txt -o n1.txt || true
+          S1=$(wc -c < n1.txt 2>/dev/null || echo 0)
+          echo "[1] NoMoreWalls: ${S1} bytes"
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/V2RayAggregator/master/Eternity.txt -o n2.txt || true
           S2=$(grep -c '' n2.txt 2>/dev/null || echo 0)
-          echo "[2] V2RayAggregator: $S2 nodes"
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/v2ray/master/merge/merge.txt -o n3.txt || true
+          echo "[2] V2RayAggregator: ${S2} lines"
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/v2ray/master/merge/merge.txt -o n3.txt || true
           S3=$(grep -c '' n3.txt 2>/dev/null || echo 0)
-          echo "[3] mfuu/v2ray: $S3 nodes"
-          curl -sL https://raw.githubusercontent.com/sangosbanikz/get_subscribe/main/subscribe/v2ray.txt -o n4.txt || true
+          echo "[3] mfuu/v2ray: ${S3} lines"
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/get_subscribe/main/subscribe/v2ray.txt -o n4.txt || true
           S4=$(grep -c '' n4.txt 2>/dev/null || echo 0)
-          echo "[4] get_subscribe: $S4 nodes"
+          echo "[4] get_subscribe: ${S4} lines"
           cat n1.txt n2.txt n3.txt n4.txt 2>/dev/null | grep -v '^$' | sort -u > subscribe/v2ray.txt
           TOTAL=$(wc -l < subscribe/v2ray.txt)
-          echo "Total raw: $((S1+S2+S3+S4)) | Dedup: $TOTAL"
-          echo "Updated: $(date '+%Y-%m-%d %H:%M:%S UTC')" > subscribe/log.txt
-          echo "[1] NoMoreWalls: $S1" >> subscribe/log.txt
-          echo "[2] V2RayAggregator: $S2" >> subscribe/log.txt
-          echo "[3] mfuu/v2ray: $S3" >> subscribe/log.txt
-          echo "[4] get_subscribe: $S4" >> subscribe/log.txt
-          echo "Total raw: $((S1+S2+S3+S4)) | Dedup: $TOTAL" >> subscribe/log.txt
+          echo "Merged: ${TOTAL} unique lines"
 
-      - name: Force commit keepalive
+      - name: Install LiteSpeedTest
+        run: |
+          wget -q https://github.com/xxf098/LiteSpeedTest/releases/download/v0.15.0/lite-linux-amd64-v0.15.0.gz
+          gunzip lite-linux-amd64-v0.15.0.gz
+          chmod +x lite-linux-amd64-v0.15.0
+          mv lite-linux-amd64-v0.15.0 /usr/local/bin/lite
+          echo "LiteSpeedTest installed"
+
+      - name: Test nodes alive
+        run: |
+          echo '{"group":"proxypool","speedtestMode":"pingonly","pingMethod":"googleping","sortMethod":"rping","concurrency":8,"testMode":2,"timeout":10,"unique":true,"outputMode":4}' > test_config.json
+          lite --config test_config.json --test subscribe/v2ray.txt > alive_raw.txt 2>/dev/null || true
+          grep -E '^(vmess|vless|ss|ssr|trojan)://' alive_raw.txt > subscribe/alive.txt 2>/dev/null || true
+          ALIVE=$(wc -l < subscribe/alive.txt 2>/dev/null || echo 0)
+          echo "Alive nodes: ${ALIVE}"
+
+      - name: IP quality check
+        run: |
+          python3 << 'PYEOF'
+          import json, urllib.request, time, re, base64, sys
+
+          def extract_ips(filename):
+              ips = set()
+              try:
+                  with open(filename) as f:
+                      for line in f:
+                          line = line.strip()
+                          if not line:
+                              continue
+                          found = re.findall(r'(?:@|"add"\s*:\s*")([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})', line)
+                          ips.update(found)
+                          if '://' in line:
+                              parts = line.split('://', 1)
+                              if len(parts) > 1:
+                                  try:
+                                      decoded = base64.b64decode(parts[1] + '==').decode('utf-8', errors='ignore')
+                                      found2 = re.findall(r'([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})', decoded)
+                                      ips.update(found2)
+                                  except:
+                                      pass
+              except:
+                  pass
+              return list(ips)[:40]
+
+          def check_ip(ip):
+              try:
+                  url = f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,regionName,city,isp,org,as,proxy,hosting,mobile,query"
+                  req = urllib.request.Request(url)
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                      return json.load(resp)
+              except:
+                  return {"status": "fail", "query": ip}
+
+          ips = extract_ips('subscribe/alive.txt')
+          if not ips:
+              ips = extract_ips('subscribe/v2ray.txt')
+
+          print(f"Checking {len(ips)} unique IPs...")
+          results = []
+          for i, ip in enumerate(ips):
+              r = check_ip(ip)
+              results.append(r)
+              label = "Residential" if not r.get("hosting", True) else "Datacenter"
+              risk = "PROXY" if r.get("proxy", False) else "Clean"
+              print(f"  [{i+1}/{len(ips)}] {ip} | {r.get('country','?')} | {r.get('isp','?')} | {label} | {risk}")
+              time.sleep(1.5)
+
+          report = {
+              "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+              "total_ips_checked": len(results),
+              "results": results,
+              "summary": {
+                  "residential": sum(1 for r in results if not r.get("hosting", True)),
+                  "datacenter": sum(1 for r in results if r.get("hosting", False)),
+                  "proxy_flagged": sum(1 for r in results if r.get("proxy", False)),
+on:
+  schedule:
+    - cron: '0 */1 * * *'
+  workflow_dispatch:
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch all sources
+        run: |
+          mkdir -p subscribe
+          echo "=== Proxy Pool $(date '+%Y-%m-%d %H:%M UTC') ==="
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/NoMoreWalls/master/list.txt -o n1.txt || true
+          S1=$(wc -c < n1.txt 2>/dev/null || echo 0)
+          echo "[1] NoMoreWalls: ${S1} bytes"
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/V2RayAggregator/master/Eternity.txt -o n2.txt || true
+          S2=$(grep -c '' n2.txt 2>/dev/null || echo 0)
+          echo "[2] V2RayAggregator: ${S2} lines"
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/v2ray/master/merge/merge.txt -o n3.txt || true
+          S3=$(grep -c '' n3.txt 2>/dev/null || echo 0)
+          echo "[3] mfuu/v2ray: ${S3} lines"
+          curl -sL --max-time 30 https://raw.githubusercontent.com/sangosbanikz/get_subscribe/main/subscribe/v2ray.txt -o n4.txt || true
+          S4=$(grep -c '' n4.txt 2>/dev/null || echo 0)
+          echo "[4] get_subscribe: ${S4} lines"
+          cat n1.txt n2.txt n3.txt n4.txt 2>/dev/null | grep -v '^$' | sort -u > subscribe/v2ray.txt
+          TOTAL=$(wc -l < subscribe/v2ray.txt)
+          echo "Merged: ${TOTAL} unique lines"
+
+      - name: Install LiteSpeedTest
+        run: |
+          wget -q https://github.com/xxf098/LiteSpeedTest/releases/download/v0.15.0/lite-linux-amd64-v0.15.0.gz
+          gunzip lite-linux-amd64-v0.15.0.gz
+          chmod +x lite-linux-amd64-v0.15.0
+          mv lite-linux-amd64-v0.15.0 /usr/local/bin/lite
+          echo "LiteSpeedTest installed"
+
+      - name: Test nodes alive
+        run: |
+          echo '{"group":"proxypool","speedtestMode":"pingonly","pingMethod":"googleping","sortMethod":"rping","concurrency":8,"testMode":2,"timeout":10,"unique":true,"outputMode":4}' > test_config.json
+          lite --config test_config.json --test subscribe/v2ray.txt > alive_raw.txt 2>/dev/null || true
+          grep -E '^(vmess|vless|ss|ssr|trojan)://' alive_raw.txt > subscribe/alive.txt 2>/dev/null || true
+          ALIVE=$(wc -l < subscribe/alive.txt 2>/dev/null || echo 0)
+          echo "Alive nodes: ${ALIVE}"
+
+      - name: IP quality check
+        run: |
+          python3 << 'PYEOF'
+          import json, urllib.request, time, re, base64, sys
+
+          def extract_ips(filename):
+              ips = set()
+              try:
+                  with open(filename) as f:
+                      for line in f:
+                          line = line.strip()
+                          if not line:
+                              continue
+                          found = re.findall(r'(?:@|"add"\s*:\s*")([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})', line)
+                          ips.update(found)
+                          if '://' in line:
+                              parts = line.split('://', 1)
+                              if len(parts) > 1:
+                                  try:
+                                      decoded = base64.b64decode(parts[1] + '==').decode('utf-8', errors='ignore')
+                                      found2 = re.findall(r'([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})', decoded)
+                                      ips.update(found2)
+                                  except:
+                                      pass
+              except:
+                  pass
+              return list(ips)[:40]
+
+          def check_ip(ip):
+              try:
+                  url = f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,regionName,city,isp,org,as,proxy,hosting,mobile,query"
+                  req = urllib.request.Request(url)
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                      return json.load(resp)
+              except:
+                  return {"status": "fail", "query": ip}
+
+          ips = extract_ips('subscribe/alive.txt')
+          if not ips:
+              ips = extract_ips('subscribe/v2ray.txt')
+
+          print(f"Checking {len(ips)} unique IPs...")
+          results = []
+          for i, ip in enumerate(ips):
+              r = check_ip(ip)
+              results.append(r)
+              label = "Residential" if not r.get("hosting", True) else "Datacenter"
+              risk = "PROXY" if r.get("proxy", False) else "Clean"
+              print(f"  [{i+1}/{len(ips)}] {ip} | {r.get('country','?')} | {r.get('isp','?')} | {label} | {risk}")
+              time.sleep(1.5)
+
+          report = {
+              "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+              "total_ips_checked": len(results),
+              "results": results,
+              "summary": {
+                  "residential": sum(1 for r in results if not r.get("hosting", True)),
+                  "datacenter": sum(1 for r in results if r.get("hosting", False)),
+                  "proxy_flagged": sum(1 for r in results if r.get("proxy", False)),
+                  "clean": sum(1 for r in results if not r.get("proxy", True)),
+                  "countries": list(set(r.get("countryCode", "?") for r in results))
+              }
+          }
+          with open("subscribe/report.json", "w") as f:
+              json.dump(report, f, indent=2, ensure_ascii=False)
+          print(f"\nSummary: {report['summary']}")
+          PYEOF
+
+      - name: Generate log
+        run: |
+          {
+            echo "=== Proxy Pool Report ==="
+            echo "Updated: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+            echo ""
+            echo "--- Source Stats ---"
+            S1=$(wc -c < n1.txt 2>/dev/null || echo 0); echo "[1] NoMoreWalls: ${S1} bytes"
+            S2=$(grep -c '' n2.txt 2>/dev/null || echo 0); echo "[2] V2RayAggregator: ${S2} lines"
+            S3=$(grep -c '' n3.txt 2>/dev/null || echo 0); echo "[3] mfuu/v2ray: ${S3} lines"
+            S4=$(grep -c '' n4.txt 2>/dev/null || echo 0); echo "[4] get_subscribe: ${S4} lines"
+            TOTAL=$(wc -l < subscribe/v2ray.txt 2>/dev/null || echo 0)
+            ALIVE=$(wc -l < subscribe/alive.txt 2>/dev/null || echo 0)
+            echo ""
+            echo "--- Pipeline ---"
+            echo "Total merged: ${TOTAL}"
+            echo "Alive nodes: ${ALIVE}"
+            echo ""
+            echo "--- IP Quality ---"
+            if [ -f subscribe/report.json ]; then
+              python3 -c "
+          import json
+          with open('subscribe/report.json') as f:
+              r = json.load(f)
+          s = r.get('summary', {})
+          print(f\"Checked: {r.get('total_ips_checked', 0)}\")
+          print(f\"Residential: {s.get('residential', 0)}\")
+          print(f\"Datacenter: {s.get('datacenter', 0)}\")
+          print(f\"Proxy flagged: {s.get('proxy_flagged', 0)}\")
+          print(f\"Clean: {s.get('clean', 0)}\")
+          print(f\"Countries: {', '.join(s.get('countries', []))}\"
+          "
+            fi
+          } > subscribe/log.txt
+
+      - name: Commit and push
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
