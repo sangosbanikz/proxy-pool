@@ -1,83 +1,49 @@
 name: Merge Proxies
-
 on:
   schedule:
-    - cron: '0 */1 * * *'
-  workflow_dispatch:
+      - cron: '0 */1 * * *'
+        workflow_dispatch:
 
-jobs:
-  merge:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+        jobs:
+          merge:
+              runs-on: ubuntu-latest
+                  steps:
+                        - name: Checkout
+                                uses: actions/checkout@v4
 
-      - name: Fetch and Merge with Logging
-        run: |
-          mkdir -p subscribe
-          TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S UTC')
-          
-          echo "========================================"
-          echo "Proxy Pool Aggregator - $TIMESTAMP"
-          echo "========================================"
-
-          # Source 1: NoMoreWalls (Base64 encoded)
-          curl -sL --max-time 30 https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.txt -o raw1.txt || true
-          base64 -d raw1.txt > nodes1.txt 2>/dev/null || cp raw1.txt nodes1.txt
-          S1=$(grep -c '' nodes1.txt 2>/dev/null || echo 0)
-          echo "[$TIMESTAMP] [Source 1] NoMoreWalls: $S1 nodes"
-
-          # Source 2: V2RayAggregator (plain text)
-          curl -sL --max-time 30 https://raw.githubusercontent.com/mahdibland/ShadowsocksAggregator/master/Eternity.txt -o nodes2.txt || true
-          S2=$(grep -c '' nodes2.txt 2>/dev/null || echo 0)
-          echo "[$TIMESTAMP] [Source 2] V2RayAggregator: $S2 nodes"
-
-          # Source 3: mfuu/v2ray (plain text)
-          curl -sL --max-time 30 https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray -o nodes3.txt || true
-          S3=$(grep -c '' nodes3.txt 2>/dev/null || echo 0)
-          echo "[$TIMESTAMP] [Source 3] mfuu/v2ray: $S3 nodes"
-
-          # Source 4: get_subscribe (plain text)
-          curl -sL --max-time 30 https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt -o raw4.txt || true
-          base64 -d raw4.txt > nodes4.txt 2>/dev/null || cp raw4.txt nodes4.txt
-          S4=$(grep -c '' nodes4.txt 2>/dev/null || echo 0)
-          echo "[$TIMESTAMP] [Source 4] get_subscribe: $S4 nodes"
-
-          # Source 5: Free-servers (Base64 encoded)
-          curl -sL --max-time 30 https://raw.githubusercontent.com/Pawdroid/Free-servers/main/sub -o raw5.txt || true
-          base64 -d raw5.txt > nodes5.txt 2>/dev/null || cp raw5.txt nodes5.txt
-          S5=$(grep -c '' nodes5.txt 2>/dev/null || echo 0)
-          echo "[$TIMESTAMP] [Source 5] Free-servers: $S5 nodes"
-
-          # Merge and deduplicate
-          cat nodes1.txt nodes2.txt nodes3.txt nodes4.txt nodes5.txt 2>/dev/null | grep -v '^$' | sort -u > subscribe/v2ray.txt
-          TOTAL=$(wc -l < subscribe/v2ray.txt)
-
-          echo "========================================"
-          echo "TOTAL before dedup: $((S1+S2+S3+S4+S5))"
-          echo "TOTAL after dedup: $TOTAL"
-          echo "========================================"
-
-          # Write log file
-          {
-            echo "Last updated: $TIMESTAMP"
-            echo ""
-            echo "Source Statistics:"
-            echo "  [1] NoMoreWalls:      $S1 nodes"
-            echo "  [2] V2RayAggregator:  $S2 nodes"
-            echo "  [3] mfuu/v2ray:       $S3 nodes"
-            echo "  [4] get_subscribe:    $S4 nodes"
-            echo "  [5] Free-servers:     $S5 nodes"
-            echo ""
-            echo "Total (raw):   $((S1+S2+S3+S4+S5))"
-            echo "Total (dedup): $TOTAL"
-          } > subscribe/log.txt
-
-      - name: Commit and push
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add -A
-          git diff --cached --quiet && echo "keepalive: $(date)" >> subscribe/log.txt && git add -A
-          git commit -m "Auto-update merged nodes: $(date '+%Y-%m-%d %H:%M')" || true
-          git push || true
+                                      - name: Fetch and Merge with Logging
+                                              run: |
+                                                        mkdir -p subscribe
+                                                                  echo "========================================"
+                                                                            echo "Proxy Pool - $(date '+%Y-%m-%d %H:%M:%S UTC')"
+                                                                                      echo "========================================"
+                                                                                                curl -sL https://raw.githubusercontent.com/sangosbanikz/NoMoreWalls/master/list.txt -o n1.txt || true
+                                                                                                          S1=$(grep -c '' n1.txt 2>/dev/null || echo 0)
+                                                                                                                    echo "[1] NoMoreWalls: $S1 nodes"
+                                                                                                                              curl -sL https://raw.githubusercontent.com/sangosbanikz/V2RayAggregator/master/Eternity.txt -o n2.txt || true
+                                                                                                                                        S2=$(grep -c '' n2.txt 2>/dev/null || echo 0)
+                                                                                                                                                  echo "[2] V2RayAggregator: $S2 nodes"
+                                                                                                                                                            curl -sL https://raw.githubusercontent.com/sangosbanikz/v2ray/master/merge/merge.txt -o n3.txt || true
+                                                                                                                                                                      S3=$(grep -c '' n3.txt 2>/dev/null || echo 0)
+                                                                                                                                                                                echo "[3] mfuu/v2ray: $S3 nodes"
+                                                                                                                                                                                          curl -sL https://raw.githubusercontent.com/sangosbanikz/get_subscribe/main/subscribe/v2ray.txt -o n4.txt || true
+                                                                                                                                                                                                    S4=$(grep -c '' n4.txt 2>/dev/null || echo 0)
+                                                                                                                                                                                                              echo "[4] get_subscribe: $S4 nodes"
+                                                                                                                                                                                                                        cat n1.txt n2.txt n3.txt n4.txt 2>/dev/null | grep -v '^$' | sort -u > subscribe/v2ray.txt
+                                                                                                                                                                                                                                  TOTAL=$(wc -l < subscribe/v2ray.txt)
+                                                                                                                                                                                                                                            echo "Total raw: $((S1+S2+S3+S4)) | Dedup: $TOTAL"
+                                                                                                                                                                                                                                                      echo "Updated: $(date '+%Y-%m-%d %H:%M:%S UTC')" > subscribe/log.txt
+                                                                                                                                                                                                                                                                echo "[1] NoMoreWalls: $S1" >> subscribe/log.txt
+                                                                                                                                                                                                                                                                          echo "[2] V2RayAggregator: $S2" >> subscribe/log.txt
+                                                                                                                                                                                                                                                                                    echo "[3] mfuu/v2ray: $S3" >> subscribe/log.txt
+                                                                                                                                                                                                                                                                                              echo "[4] get_subscribe: $S4" >> subscribe/log.txt
+                                                                                                                                                                                                                                                                                                        echo "Total raw: $((S1+S2+S3+S4)) | Dedup: $TOTAL" >> subscribe/log.txt
+                                                                                                                                                                                                                                                                                                        
+                                                                                                                                                                                                                                                                                                              - name: Force commit keepalive
+                                                                                                                                                                                                                                                                                                                      run: |
+                                                                                                                                                                                                                                                                                                                                git config --global user.name "GitHub Action"
+                                                                                                                                                                                                                                                                                                                                          git config --global user.email "action@github.com"
+                                                                                                                                                                                                                                                                                                                                                    git add -A
+                                                                                                                                                                                                                                                                                                                                                              git commit -m "update $(date '+%m-%d %H:%M')" --allow-empty
+                                                                                                                                                                                                                                                                                                                                                                        git push
+                                                                                                                                                                                                                                                                                                                                                                        
